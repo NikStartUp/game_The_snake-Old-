@@ -1,0 +1,458 @@
+using Microsoft.Win32.SafeHandles;
+using System.Runtime.InteropServices;
+
+namespace huy
+{
+    enum EActiv
+    {
+        STOP = 0, LEFT, RIGHT, UP, DOWN
+    };
+
+    class Program
+    {
+        
+        public static Command Move = new Command();
+        static void ReadCommand(char symb)
+        {
+            switch (symb)
+            {
+                case 'a':
+                    Move = Command.LEFT;
+                    break;
+                case 'd':
+                    Move = Command.RIGHT;
+                    break;
+                case 'w':
+                    Move = Command.UP;
+                    break;
+                case 's':
+                    Move = Command.DOWN;
+                    break;
+                case 'x':
+                    Move = Command.STOP;
+                    break;
+            }
+            switch (symb)
+            {
+                case 'ф':
+                    Move = Command.LEFT;
+                    break;
+                case 'в':
+                    Move = Command.RIGHT;
+                    break;
+                case 'ц':
+                    Move = Command.UP;
+                    break;
+                case 'ы':
+                    Move = Command.DOWN;
+                    break;
+                case 'ч':
+                    Move = Command.STOP;
+                    break;
+            }
+        }
+
+        static void Main()
+        {
+            Console.OutputEncoding = System.Text.Encoding.Unicode;
+            Console.WriteLine("1-Свободный режим\n2-Аркада\n");
+            Console.CursorVisible = false;
+            Drawing Play = new Drawing
+            {
+                Mode = Int32.Parse(Console.ReadLine())
+            };
+            Move = Command.UP;
+            //запускаем змею в новом потоке для независимой обработки нажатия клавиш
+            Thread NewThread = new Thread(Play.Start);
+            NewThread.Start();
+            while (Move != Command.STOP || !Play.GameOver)
+            {
+                //Вводим символ не отображаем в консоле
+                ReadCommand(Console.ReadKey(true).KeyChar);
+                if (Play.Score == 3600)
+                {
+                    Console.WriteLine("You win!");
+                    Move = Command.STOP;
+                }
+                //Чуток ждем дабы не перегружать попусту процессор
+                Thread.Sleep(200);
+            }
+            Console.ReadKey();
+        }
+    }
+    //список команд
+    public enum Command
+    {
+        STOP, LEFT, RIGHT, UP, DOWN
+    };
+    public class Snake
+    {
+        //Направление движения
+        public Command Direct = new Command();
+        //Стены
+        public int ArealW { get; set; }
+        public int ArealH { get; set; }
+        //Длина
+        public int Length { get; set; } = 1;
+        //Позиция головы
+        public int PosX { get; set; }
+        public int PosY { get; set; }
+        //Хвост
+        public int[] TailX = new int[360];
+        public int[] TailY = new int[360];
+        //
+        public int PrevX { get; set; }
+        public int PrevY { get; set; }
+        //
+        public int Prev2X { get; set; }
+        public int Prev2Y { get; set; }
+        //Скорость движения
+        public int Speed { get; set; } = 300;
+        //Состояние жизни
+        public bool Life { get; set; } = true;
+        //режим
+        public int mode;
+        //Поведение
+        public void Behavior()
+        {
+            TailX[0] = PosX;
+            TailY[0] = PosY;
+
+            PrevX = TailX[0];
+            PrevY = TailY[0];
+
+            for (int i = 1; i < Length; i++)
+            {
+                Prev2X = TailX[i];
+                Prev2Y = TailY[i];
+
+                TailX[i] = PrevX;
+                TailY[i] = PrevY;
+
+                PrevX = Prev2X;
+                PrevY = Prev2Y;
+            }
+            //Меняем направление движения
+            switch (Direct)
+            {
+                case Command.LEFT:
+                    PosX--;
+                    break;
+                case Command.RIGHT:
+                    PosX++;
+                    break;
+                case Command.DOWN:
+                    PosY++;
+                    break;
+                case Command.UP:
+                    PosY--;
+                    break;
+            }
+            //В зависимости от режима
+            switch (mode)
+            {
+                //проходит сквозь стену
+                case 1:
+                    if (PosX >= ArealW - 1)
+                        PosX = 1;
+                    else if (PosX < 1)
+                        PosX = ArealW - 1;
+                    if (PosY >= ArealH - 1)
+                        PosY = 0;
+                    else if (PosY < 1)
+                        PosY = ArealH - 1;
+                    break;
+                //погибает
+                case 2:
+                    if (PosX == ArealW - 1 || PosX == 0 || PosY == ArealH - 1 || PosY == 0)
+                    {
+                        Life = false;
+                        return;
+                    }
+                    break;
+            }
+            //Проверяем столкновение с хвостом
+            for (int i = 0; i < Length; i++)
+            {
+                //если врезались в хвост 
+                if (TailX[i] == PosX && TailY[i] == PosY)
+                {
+                    //затираем тело. Будет небольшой глюк, тело пропадет до первого поедания фрукта
+                    for (int c = i - 1; c < TailX.Length; c++)
+                    {
+                        TailX[c] = 0;
+                        TailY[c] = 0;
+                    }
+                    //Отрезаем хвост
+                    Length = (i - 1);
+                }
+            }
+        }
+    }
+
+    public class Fruit
+    {
+        public int PosX { get; set; }
+        public int PosY { get; set; }
+    }
+
+    public class Drawing
+    {
+        private Random rand = new Random();
+        public bool GameOver;
+        //сколько нужно собрать для победы
+        public int FullCount = 30;
+        //сколько уже собрано
+        public int Score = 0;
+        //ширина поля
+        private short WIDTH { get; set; } = 20;
+        //высота поля
+        private short HEIGHT { get; set; } = 20;
+        //Новая змея и фрукт
+        Snake snake = new Snake();
+        Fruit fruit = new Fruit();
+        //-------------------------------------
+        SafeFileHandle Handle = CreateFile("CONOUT$", 0x40000000, 2, IntPtr.Zero, FileMode.Open, 0, IntPtr.Zero);
+        private short ColorGreen = 10;
+        private short ColorRed = 4;
+        private short ColorYellow = 6;
+        private short ColorBlue = 9;
+        //-------------------------------------
+        //Режим
+        public int Mode { get; set; } = 1;
+        // Начальные установки
+        private void StartSetup()
+        {
+            FruitNewPosition();
+            snake.PosX = WIDTH / 2;
+            snake.PosY = HEIGHT / 2;
+            snake.ArealW = WIDTH;
+            snake.ArealH = HEIGHT;
+            snake.mode = Mode;
+            //Отрисовка
+            Console.Clear();
+            Draw();
+        }
+        // Старт
+        public void Start()
+        {
+            //Первая отрисовка
+            StartSetup();
+            while (Program.Move != Command.STOP)
+            {
+                //Вызываем движение
+                snake.Direct = Program.Move;
+                snake.Behavior();
+                //Если не пережили
+                if (!snake.Life)
+                {
+                    GameOver = true;
+                    End();
+                    Console.ReadKey();
+                    Thread.CurrentThread.Abort();
+                    break;
+                }
+                //Если нашли фрукт
+                if (Eat())
+                {
+                    //ставим фрукт на новое место
+                    FruitNewPosition();
+                    snake.Length++;
+                }
+                Score = (snake.Length - 1) * 10;
+                //перерисовка
+                Draw();
+                Thread.Sleep(snake.Speed);
+            }
+        }
+        //новая позиция фрукта
+        private void FruitNewPosition()
+        {
+            int point = rand.Next();
+            fruit.PosX = point % (WIDTH - 1);
+            fruit.PosY = point % (HEIGHT - 1);
+            //если фрукт за пределами
+            if (fruit.PosX == 0 || fruit.PosY == 0 || fruit.PosX == WIDTH || fruit.PosY == HEIGHT)
+            {
+                FruitNewPosition();
+            }
+            //если фрукт на питоне
+            for (int d = 0; d < snake.Length; d++)
+            {
+                if (fruit.PosX == snake.TailX[d] && fruit.PosY == snake.TailY[d])
+                {
+                    FruitNewPosition();
+                }
+            }
+        }
+        //проверяем столкновение змеи с фруктом
+        private bool Eat()
+        {
+            if ((snake.PosX == fruit.PosX) && (snake.PosY == fruit.PosY))
+                return true;
+            return false;
+        }
+        //
+        private void Draw()
+        {
+            if (!Handle.IsInvalid)
+            {
+                //буфер
+                CharInfo[] buf = new CharInfo[3600];
+                //Прямоугольник
+                SmallRect rect = new SmallRect() { Left = 50, Top = 0, Right = 1000, Bottom = HEIGHT };
+                //счетчик буфера
+                int count = 0;
+                //--------------------------------рисуем игру
+                for (int i = 0; i < HEIGHT; i++)
+                {
+                    //верх
+                    if (i == 0)
+                    {
+                        for (int up = 0; up < WIDTH; up++)
+                        {
+                            buf[count].Attributes = ColorRed;
+                            buf[count].Char.UnicodeChar = '#';
+                            count++;
+                        }
+                    }
+                    //низ
+                    else if (i == HEIGHT - 1)
+                    {
+                        for (int up = 0; up < WIDTH; up++)
+                        {
+                            buf[count].Attributes = ColorRed;
+                            buf[count].Char.UnicodeChar = '#';
+                            count++;
+                        }
+                        //Пишем Score
+                        char[] arrayScore = ("Score: " + Score).ToCharArray();
+                        for (int l = 0; l < arrayScore.Length; l++)
+                        {
+                            buf[count].Attributes = ColorBlue;
+                            buf[count].Char.UnicodeChar = arrayScore[l];
+                            count++;
+                        }
+                    }
+                    else
+                    {
+                        for (int s = 0; s < WIDTH; s++)
+                        {
+                            //рисуем либо левую стену, либо правую
+                            if (s == 0 || s == WIDTH - 1)
+                            {
+                                buf[count].Char.UnicodeChar = '#';
+                                buf[count].Attributes = ColorRed;
+                                count++;
+                            }
+                            //иначе рисуем поле
+                            else
+                            {
+                                //рисуем голову
+                                if (snake.PosX == s && snake.PosY == i)
+                                {
+                                    
+                                    buf[count].Char.UnicodeChar = '0';
+                                    buf[count].Attributes = ColorYellow;
+                                    count++;
+                                }
+                                //если не голова 
+                                else
+                                {
+                                    //рисуем фрукт
+                                    if (fruit.PosX == s && fruit.PosY == i)
+                                    {
+                                        buf[count].Char.UnicodeChar = '*';
+                                        buf[count].Attributes = ColorGreen;
+                                        count++;
+                                    }
+                                    //если не голова и не фрукт
+                                    else
+                                    {
+                                        bool print = false;
+                                        for (int k = 1; k < snake.Length; k++)
+                                        {
+                                            if (snake.TailX[k] == s && snake.TailY[k] == i)
+                                            {
+                                                buf[count].Char.UnicodeChar = 'o';
+                                                buf[count].Attributes = ColorYellow;
+                                                count++;
+                                                print = true;
+                                            }
+                                        }
+                                        if (!print)
+                                        {
+                                            buf[count].Char.UnicodeChar = ' ';
+                                            buf[count].Attributes = ColorRed;
+                                            count++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                bool b = WriteConsoleOutput(Handle, buf, new Coord() { X = WIDTH, Y = Convert.ToSByte(HEIGHT + 1) }, new Coord() { X = 0, Y = 0 }, ref rect);
+            }
+        }
+        private void End()
+        {
+            Console.Clear();
+            Console.WriteLine("Game Over. Your score:" + Score);
+        }
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        static extern SafeFileHandle CreateFile(
+           string fileName,
+           [MarshalAs(UnmanagedType.U4)] uint fileAccess,
+           [MarshalAs(UnmanagedType.U4)] uint fileShare,
+           IntPtr securityAttributes,
+           [MarshalAs(UnmanagedType.U4)] FileMode creationDisposition,
+           [MarshalAs(UnmanagedType.U4)] int flags,
+           IntPtr template);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool WriteConsoleOutput(
+          SafeFileHandle hConsoleOutput,
+          CharInfo[] lpBuffer,
+          Coord dwBufferSize,
+          Coord dwBufferCoord,
+          ref SmallRect lpWriteRegion);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Coord
+        {
+            public short X;
+            public short Y;
+            public Coord(short X, short Y)
+            {
+                this.X = X;
+                this.Y = Y;
+            }
+        };
+
+        [StructLayout(LayoutKind.Explicit)]
+        public struct CharUnion
+        {
+            [FieldOffset(0)] public char UnicodeChar;
+            [FieldOffset(0)] public byte AsciiChar;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        public struct CharInfo
+        {
+            [FieldOffset(0)] public CharUnion Char;
+            [FieldOffset(2)] public short Attributes;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SmallRect
+        {
+            public short Left;
+            public short Top;
+            public short Right;
+            public short Bottom;
+        }
+    }
+}
+
